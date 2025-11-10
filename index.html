@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Survive the Night — Juego de supervivencia</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --card:#f8fafc;
+    --muted:#6b7280;
+    --accent:#06b6d4;     /* cyan vivid */
+    --accent2:#f472b6;    /* pink vivid */
+    --danger:#ef4444;
+    --glass: rgba(2,6,23,0.04);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:#0f172a}
+  .wrap{display:flex;align-items:center;justify-content:center;height:100vh;padding:20px}
+  .card{width:980px;background:var(--card);border-radius:14px;box-shadow:0 10px 30px rgba(2,6,23,0.08);overflow:hidden;display:flex}
+  .left{flex:1;padding:18px;display:flex;flex-direction:column;gap:12px}
+  canvas{background:linear-gradient(180deg,#ffffff,#f0f9ff);border-radius:10px;display:block;width:100%;height:640px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.6)}
+  .right{width:320px;padding:18px;border-left:1px solid rgba(2,6,23,0.04);display:flex;flex-direction:column;gap:12px}
+  h1{font-size:20px;margin:0;color:#0f172a}
+  .muted{color:var(--muted);font-size:13px}
+  .btn{background:linear-gradient(90deg,var(--accent),var(--accent2));color:white;border:0;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:600}
+  .small{font-size:13px}
+  .stat{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:10px;background:var(--glass)}
+  .log{height:220px;overflow:auto;padding:8px;border-radius:8px;background:rgba(2,6,23,0.02)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{padding:6px 8px;border-radius:8px;background:rgba(2,6,23,0.03);font-weight:600}
+  .center{text-align:center}
+  footer{font-size:12px;color:var(--muted);text-align:center;margin-top:6px}
+  @media(max-width:1100px){ .card{width:100%;flex-direction:column} .right{width:100%;border-left:0;border-top:1px solid rgba(2,6,23,0.04)} canvas{height:480px}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="left">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <h1>Survive the Night</h1>
+            <div class="muted small">Controla la nave — muévete con WASD / flechas. Dispara con espacio o clic. Sobrevive hasta el amanecer.</div>
+          </div>
+          <div class="controls">
+            <div class="chip small">Modo: <span id="modeLabel">Supervivencia</span></div>
+            <button id="btnStart" class="btn">Jugar</button>
+          </div>
+        </div>
+
+        <canvas id="gameCanvas" width="900" height="640"></canvas>
+
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <div class="stat"><div>Tiempo restante</div><div id="timeLeft">--</div></div>
+          <div class="stat"><div>Puntuación</div><div id="score">0</div></div>
+          <div class="stat"><div>Vidas</div><div id="lives">3</div></div>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="section">
+          <div class="muted">Información</div>
+          <div style="margin-top:8px" id="info">Pantalla de inicio. Presiona Jugar para comenzar la noche.</div>
+        </div>
+
+        <div class="section">
+          <div class="muted">Controles</div>
+          <div class="muted small" style="margin-top:6px">Mover: W/A/S/D o flechas<br>Disparar: Espacio o clic izquierdo<br>Pausa: P</div>
+        </div>
+
+        <div>
+          <div class="muted">Registro</div>
+          <div class="log" id="log"></div>
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button id="btnSave" class="btn" style="flex:1;background:linear-gradient(90deg,#7c3aed,#06b6d4)">Guardar</button>
+          <button id="btnLoad" class="btn" style="flex:1;background:linear-gradient(90deg,#06b6d4,#f472b6)">Cargar</button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="muted small">Dificultad</div>
+          <select id="difficulty" style="padding:8px;border-radius:8px;border:1px solid rgba(2,6,23,0.05)">
+            <option value="1">Fácil</option>
+            <option value="2" selected>Normal</option>
+            <option value="3">Difícil</option>
+          </select>
+        </div>
+
+        <div class="center muted small">Hecho por ChatGPT — Versión demo</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* Survive the Night
+   - Juego en un solo archivo.
+   - Jugador: nave futurista minimalista.
+   - Objetivo: sobrevivir X segundos (dependiendo de dificultad).
+   - Enemigos: enemigos "chasers" que aparecen en oleadas.
+   - Duración entre 45-90s según dificultad.
+   - Guardado de mejor puntuación (localStorage).
+*/
+
+(() => {
+  // Canvas y contexto
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // UI
+  const btnStart = document.getElementById('btnStart');
+  const infoEl = document.getElementById('info');
+  const logEl = document.getElementById('log');
+  const timeLeftEl = document.getElementById('timeLeft');
+  const scoreEl = document.getElementById('score');
+  const livesEl = document.getElementById('lives');
+  const difficultySel = document.getElementById('difficulty');
+
+  // Estado del juego
+  let state = {
+    phase: 'menu', // menu, running, paused, ended
+    difficulty: 2,
+    totalTime: 60, // segundos a sobrevivir; ajustado por dificultad
+    timeLeft: 60,
+    score: 0,
+    lives: 3,
+    player: null,
+    bullets: [],
+    enemies: [],
+    particles: [],
+    spawnTimer: 0,
+    enemyCount: 0,
+    wave: 0,
+    bestScore: 0
+  };
+
+  // Controles
+  const keys = {};
+  window.addEventListener('keydown', (e)=>{ keys[e.key.toLowerCase()] = true; if(e.key.toLowerCase()==='p') togglePause(); if(e.key===' ') e.preventDefault(); });
+  window.addEventListener('keyup', (e)=>{ keys[e.key.toLowerCase()] = false; });
+
+  // Mouse shoot
+  let mouseDown = false;
+  canvas.addEventListener('mousedown', (e)=>{ if(e.button===0){ mouseDown = true; shoot(); } });
+  canvas.addEventListener('mouseup', (e)=>{ if(e.button===0) mouseDown = false; });
+  canvas.addEventListener('mousemove', (e)=>{ const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left; const my = e.clientY - r.top; if(state.player) state.player.aimAt(mx, my); });
+
+  // Utility
+  const rand = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const dist = (a,b,c,d) => Math.hypot(a-c, b-d);
+
+  // Player class (nave minimalista)
+  class Player {
+    constructor(){
+      this.x = W/2; this.y = H/2;
+      this.r = 14;
+      this.speed = 220; // px/s
+      this.angle = -Math.PI/2;
+      this.hp = 100;
+      this.maxHp = 100;
+      this.fireRate = 0.16; // segundos
+      this.fireTimer = 0;
+      this.inv = 0;
+    }
+    update(dt){
+      // movement
+      let dx = 0, dy = 0;
+      if(keys['w']||keys['arrowup']) dy -= 1;
+      if(keys['s']||keys['arrowdown']) dy += 1;
+      if(keys['a']||keys['arrowleft']) dx -= 1;
+      if(keys['d']||keys['arrowright']) dx += 1;
+      if(dx!==0 || dy!==0){
+        const mag = Math.hypot(dx,dy);
+        dx/=mag; dy/=mag;
+        this.x += dx * this.speed * dt;
+        this.y += dy * this.speed * dt;
+        this.x = clamp(this.x, this.r, W - this.r);
+        this.y = clamp(this.y, this.r, H - this.r);
+      }
+      // firing
+      this.fireTimer -= dt;
+      if((keys[' '] || mouseDown) && this.fireTimer <= 0){
+        this.fireTimer = this.fireRate;
+        shoot();
+      }
+      if(this.inv > 0) this.inv -= dt;
+    }
+    draw(ctx){
+      // glow
+      ctx.save();  ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle + Math.PI/2);
+      // engine glow
+      ctx.fillStyle = 'rgba(6,182,212,0.08)';
+      ctx.beginPath(); ctx.ellipse(0,10,22,10,0,0,Math.PI*2); ctx.fill();
+      // body
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(0,-this.r);
+      ctx.lineTo(this.r, this.r);
+      ctx.lineTo(0, this.r*0.4);
+      ctx.lineTo(-this.r, this.r);
+      ctx.closePath();
+      ctx.fill();
+      // accent
+      ctx.fillStyle = 'linear-gradient'; // placeholder
+      ctx.fillStyle = '#06b6d4';
+      ctx.beginPath();
+      ctx.moveTo(0,-this.r*0.6);
+      ctx.lineTo(this.r*0.55, this.r*0.65);
+      ctx.lineTo(0, this.r*0.25);
+      ctx.closePath();
+      ctx.fill();
+      // cockpit
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.ellipse(-3,-2,5,6,0,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+      // hp bar
+      const w = 120, h = 8;
+      const x = 12, y = H - 22;
+      ctx.fillStyle = 'rgba(2,6,23,0.06)'; ctx.fillRect(x-2,y-2,w+4,h+4);
+      ctx.fillStyle = '#e6eef6'; ctx.fillRect(x,y,w,h);
+      ctx.fillStyle = '#06b6d4'; ctx.fillRect(x,y,w*(this.hp/this.maxHp),h);
+      ctx.strokeStyle = 'rgba(2,6,23,0.06)'; ctx.strokeRect(x,y,w,h);
+    }
+    aimAt(mx, my){
+      this.angle = Math.atan2(my - this.y, mx - this.x);
+    }
+    takeDamage(v){
+      if(this.inv > 0) return;
+      this.hp -= v; this.inv = 0.9;
+      addParticle(this.x + (Math.random()-0.5)*20, this.y + (Math.random()-0.5)*20, v*3, '#ff6b6b');
+      if(this.hp <= 0) onPlayerDeath();
+    }
+  }
+
+  // Bullet
+  class Bullet {
+    constructor(x,y,ax,ay,owner='player'){
+      this.x = x; this.y = y;
+      this.vx = ax; this.vy = ay;
+      this.speed = 520;
+      this.radius = 4;
+      this.owner = owner;
+      this.life = 2; // seconds
+    }
+    update(dt){
+      this.x += this.vx * this.speed * dt;
+      this.y += this.vy * this.speed * dt;
+      this.life -= dt;
+      // collisions with walls - reflect or expire (we don't have walls here)
+    }
+    draw(ctx){
+      const grd = ctx.createLinearGradient(this.x-3,this.y-3,this.x+3,this.y+3);
+      grd.addColorStop(0,'#fff'); grd.addColorStop(1,'#f472b6');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(this.x,this.y,this.radius,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Enemy (chasers)
+  class Enemy {
+    constructor(x,y,level=1){
+      this.x = x; this.y = y;
+      this.r = 12;
+      this.level = level;
+      this.speed = 70 + level*8;
+      this.hp = 10 + level*5;
+      this.color = (level>2)? '#f97316' : '#ef4444';
+    }
+    update(dt){
+      // move toward player
+      const p = state.player;
+      const dx = p.x - this.x, dy = p.y - this.y;
+      const d = Math.hypot(dx,dy);
+      if(d>0.1){
+        this.x += (dx/d) * this.speed * dt;
+        this.y += (dy/d) * this.speed * dt;
+      }
+      // attack if touching
+      if(d < this.r + state.player.r - 2){
+        // damage over time
+        if(!this._atkTimer) this._atkTimer = 0;
+        this._atkTimer -= dt;
+        if(this._atkTimer <= 0){
+          this._atkTimer = 0.8;
+          state.player.takeDamage(12);
+          addParticle(this.x, this.y, 12, '#ffb366');
+        }
+      }
+    }
+    draw(ctx){
+      // body
+      ctx.fillStyle = this.color;
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
+      // core
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(this.x, this.y, this.r*0.45, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Particles
+  class Particle {
+    constructor(x,y,vx,vy,life,color){
+      this.x=x; this.y=y; this.vx=vx; this.vy=vy; this.life=life; this.maxLife=life; this.color=color;
+    }
+    update(dt){ this.x += this.vx*dt; this.y += this.vy*dt; this.vy += 40*dt; this.life -= dt; }
+    draw(ctx){
+      const a = Math.max(0, this.life/this.maxLife);
+      ctx.fillStyle = hexToRGBA(this.color, a);
+      ctx.beginPath(); ctx.arc(this.x, this.y, Math.max(0.5, 3*a), 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Helpers
+  function hexToRGBA(hex, a){
+    // hex like #rrggbb
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function addParticle(x,y,str,color){
+    for(let i=0;i<Math.min(8, Math.ceil(str/2)); i++){
+      const ang = Math.random()*Math.PI*2;
+      const sp = 60 + Math.random()*90;
+      state.particles.push(new Particle(x,y,Math.cos(ang)*sp,Math.sin(ang)*sp,0.4 + Math.random()*0.6,color));
+    }
+  }
+
+  // Game events
+  function onPlayerDeath(){
+    log('Has muerto durante la noche...');
+    state.lives -= 1;
+    updateUI();
+    if(state.lives > 0){
+      // respawn quickly
+      log('Respawning...');
+      resetRun();
+      state.phase = 'running';
+    } else {
+      endGame(false);
+    }
+  }
+
+  function spawnEnemy(){
+    // spawn from edges
+    const side = rand(0,3);
+    let x,y;
+    if(side===0){ x = -30; y = Math.random()*H; }
+    else if(side===1){ x = W + 30; y = Math.random()*H; }
+    else if(side===2){ x = Math.random()*W; y = -30; }
+    else { x = Math.random()*W; y = H + 30; }
+    const level = 1 + Math.floor(state.wave * 0.5);
+    const e = new Enemy(x,y,level);
+    state.enemies.push(e);
+    state.enemyCount++;
+  }
+
+  function shoot(){
+    if(!state.player) return;
+    const ang = state.player.angle;
+    const vx = Math.cos(ang), vy = Math.sin(ang);
+    const b = new Bullet(state.player.x + vx*20, state.player.y + vy*20, vx, vy, 'player');
+    state.bullets.push(b);
+    addParticle(b.x, b.y, 3, '#9f7aea');
+  }
+
+  // Logging
+  function log(text){
+    const d = document.createElement('div'); d.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    logEl.prepend(d);
+    // limit log
+    while(logEl.children.length > 80) logEl.removeChild(logEl.lastChild);
+  }
+
+  // UI update
+  function updateUI(){
+    timeLeftEl.textContent = Math.ceil(state.timeLeft) + 's';
+    scoreEl.textContent = state.score;
+    livesEl.textContent = state.lives;
+  }
+
+  // Save / Load best score
+  function saveProgress(){
+    try {
+      const best = Math.max(state.bestScore, state.score);
+      localStorage.setItem('stn_best', String(best));
+      log('Progreso guardado.');
+    } catch(e){}
+  }
+  function loadProgress(){
+    try {
+      const b = localStorage.getItem('stn_best');
+      state.bestScore = b ? parseInt(b,10) : 0;
+    } catch(e){ state.bestScore = 0; }
+  }
+
+  // Start, reset, end
+  function setupNewRun(){
+    state.player = new Player();
+    state.bullets = [];
+    state.enemies = [];
+    state.particles = [];
+    state.spawnTimer = 0;
+    state.enemyCount = 0;
+    state.wave = 0;
+    state.timeLeft = state.totalTime;
+    state.score = 0;
+  }
+
+  function resetRun(){
+    // keep lives, reset other things
+    setupNewRun();
+  }
+
+  function startGame(){
+    state.difficulty = parseInt(difficultySel.value,10);
+    // set totalTime by difficulty
+    state.totalTime = (state.difficulty === 1) ? 70 : (state.difficulty === 2 ? 55 : 40);
+    state.timeLeft = state.totalTime;
+    state.score = 0;
+    state.lives = 3;
+    state.phase = 'running';
+    setupNewRun();
+    log('La noche comienza — sobrevive hasta el amanecer (' + state.totalTime + 's)');
+  }
+
+  function endGame(victory){
+    state.phase = 'ended';
+    if(victory){
+      log('¡Amaneció! Sobreviviste la noche. Puntuación: ' + state.score);
+      infoEl.innerHTML = `<strong style="color:green">¡Victoria!</strong> Has sobrevivido. Puntuación: <strong>${state.score}</strong>`;
+    } else {
+      log('La noche te superó. Fin del intento. Puntuación: ' + state.score);
+      infoEl.innerHTML = `<strong style="color:#ef4444">Derrota</strong> Puntuación: <strong>${state.score}</strong>`;
+    }
+    // save best
+    state.bestScore = Math.max(state.bestScore, state.score);
+    saveProgress();
+    // present play again
+    btnStart.textContent = 'Jugar de nuevo';
+  }
+
+  // collision helpers
+  function bulletHitsEnemy(b, e){
+    return dist(b.x,b.y,e.x,e.y) < b.radius + e.r;
+  }
+
+  // Main update
+  let last = performance.now();
+  function loop(now){
+    const dt = Math.min(0.032, (now - last)/1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt){
+    if(state.phase !== 'running') return;
+    // timers
+    state.timeLeft -= dt;
+    if(state.timeLeft <= 0){
+      // victory
+      endGame(true);
+      return;
+    }
+    // spawn logic: spawn more as time goes on and difficulty higher
+    state.spawnTimer -= dt;
+    if(state.spawnTimer <= 0){
+      const base = 1.2 - (state.difficulty*0.15);
+      const rate = Math.max(0.25, base - (state.wave*0.02));
+      state.spawnTimer = rate;
+      spawnEnemy();
+      // occasionally spawn a small group
+      if(Math.random() < 0.25 + state.difficulty*0.05) {
+        spawnEnemy();
+      }
+    }
+
+    // wave progression
+    if(state.enemyCount > 0 && state.enemyCount % 6 === 0 && state.wave < Math.floor(state.enemyCount/6)){
+      state.wave++;
+      log('Oleada ' + state.wave);
+    }
+
+    // update player
+    state.player.update(dt);
+
+    // bullets
+    for(let i = state.bullets.length - 1; i >= 0; i--){
+      const b = state.bullets[i];
+      b.update(dt);
+      // remove if life expired or outside bounds
+      if(b.life <= 0 || b.x < -50 || b.x > W + 50 || b.y < -50 || b.y > H + 50){
+        state.bullets.splice(i,1); continue;
+      }
+      // collision with enemies
+      for(let j = state.enemies.length - 1; j >= 0; j--){
+        const e = state.enemies[j];
+        if(b.owner === 'player' && bulletHitsEnemy(b,e)){
+          e.hp -= 12 + state.difficulty*3;
+          addParticle(b.x, b.y, 6, '#f472b6');
+          state.bullets.splice(i,1);
+          if(e.hp <= 0){
+            // kill
+            addParticle(e.x, e.y, 18, '#ffd166');
+            state.enemies.splice(j,1);
+            state.score += 10 + Math.floor(state.difficulty*5);
+            // small chance to spawn pickup (health)
+            if(Math.random() < 0.08) {
+              state.player.hp = Math.min(state.player.maxHp, state.player.hp + 18);
+              log('Reparación recogida (auto)');
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    // enemies update
+    for(let i = state.enemies.length - 1; i >= 0; i--){
+      const e = state.enemies[i];
+      e.update(dt);
+      // if enemy collides with player, handled in enemy.update via player.takeDamage
+    }
+
+    // particles update
+    for(let i = state.particles.length - 1; i >= 0; i--){
+      const p = state.particles[i];
+      p.update(dt);
+      if(p.life <= 0) state.particles.splice(i,1);
+    }
+
+    // occasional score growth over time survived
+    state.score += Math.floor(2 * dt * (1 + state.difficulty*0.5));
+
+    updateUI();
+  }
+
+  // Drawing
+  function draw(){
+    // clear
+    ctx.clearRect(0,0,W,H);
+    // background: subtle sunrise gradient based on time left
+    const percent = 1 - (state.timeLeft / state.totalTime); // 0..1
+    drawBackground(percent);
+
+    // grid glow
+    drawGrid();
+
+    // draw bullets
+    for(const b of state.bullets) b.draw(ctx);
+
+    // draw enemies
+    for(const e of state.enemies) e.draw(ctx);
+
+    // draw player
+    if(state.player) state.player.draw(ctx);
+
+    // draw particles
+    for(const p of state.particles) p.draw(ctx);
+
+    // HUD overlays
+    drawHUD();
+  }
+
+  function drawBackground(percent){
+    // percent -> adjust sky color; morning near 1
+    const dayR = 255, dayG = 255, dayB = 255;
+    const nightR = 8, nightG = 12, nightB = 30;
+    // Lerp
+    const r = Math.round(nightR + (dayR - nightR) * percent);
+    const g = Math.round(nightG + (dayG - nightG) * percent);
+    const b = Math.round(nightB + (dayB - nightB) * percent);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(0,0,W,H);
+
+    // decorative circles for modern look
+    ctx.globalAlpha = 0.06 + percent*0.12;
+    for(let i=0;i<6;i++){
+      ctx.beginPath();
+      const cx = (i+1)*(W/7) + Math.sin((i+1)+Date.now()*0.0002)*40;
+      const cy = H*0.2 + Math.cos((i+1)*0.7)*40 + percent*40;
+      ctx.fillStyle = i%2? '#06b6d4' : '#f472b6';
+      ctx.arc(cx, cy, 120 + (i*6), 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGrid(){
+    ctx.save();
+    ctx.globalAlpha = 0.03;
+    ctx.strokeStyle = '#ffffff';
+    for(let x=0;x<W;x+=60){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+    for(let y=0;y<H;y+=60){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHUD(){
+    // center top: time left big
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = '700 28px Inter, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.ceil(state.timeLeft) + 's', W/2, 40);
+    ctx.restore();
+
+    // score top-right
+    ctx.save();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '600 16px Inter, Arial';
+    ctx.textAlign = 'right';
+    ctx.fillText('Puntuación: ' + state.score, W - 18, 36);
+    ctx.restore();
+
+    // best score bottom-right small
+    ctx.save();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '500 12px Inter, Arial';
+    ctx.textAlign = 'right';
+    ctx.fillText('Mejor: ' + state.bestScore, W - 18, H - 8);
+    ctx.restore();
+  }
+
+  // Buttons binding
+  btnStart.addEventListener('click', ()=> {
+    if(state.phase === 'menu' || state.phase === 'ended') {
+      startGame();
+      btnStart.textContent = 'Jugando...';
+      infoEl.textContent = 'Sobrevive hasta que amanezca. Buena suerte.';
+    } else if(state.phase === 'running'){
+      // do nothing
+    }
+  });
+
+  document.getElementById('btnSave').addEventListener('click', ()=> {
+    saveProgress();
+  });
+  document.getElementById('btnLoad').addEventListener('click', ()=> {
+    loadProgress();
+    log('Progreso cargado. Mejor puntuación: ' + state.bestScore);
+    updateUI();
+  });
+
+  // Pause
+  function togglePause(){
+    if(state.phase === 'running') { state.phase = 'paused'; infoEl.textContent = 'Pausado'; btnStart.textContent = 'Reanudar'; }
+    else if(state.phase === 'paused'){ state.phase = 'running'; infoEl.textContent = 'Jugando'; btnStart.textContent = 'Jugando...'; }
+  }
+
+  // Init
+  function init(){
+    loadProgress();
+    state.phase = 'menu';
+    state.difficulty = parseInt(difficultySel.value,10);
+    // initial UI
+    infoEl.textContent = 'Presiona Jugar para comenzar la noche.';
+    btnStart.textContent = 'Jugar';
+    // set handlers for difficulty
+    difficultySel.addEventListener('change', ()=> {
+      state.difficulty = parseInt(difficultySel.value,10);
+      log('Dificultad: ' + (state.difficulty===1?'Fácil': state.difficulty===2?'Normal':'Difícil'));
+    });
+
+    // initial player
+    state.player = new Player();
+    updateUI();
+    requestAnimationFrame(loop);
+  }
+
+  // Start the whole thing
+  init();
+
+  // Expose some functions for debugging
+  window._stn = {
+    state,
+    spawnEnemy,
+    addParticle,
+    shoot
+  };
+})();
+</script>
+</body>
+</html>
